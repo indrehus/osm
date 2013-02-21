@@ -47,10 +47,19 @@ void process_start(const char *executable);
 #define PROCESS_ILLEGAL_JOIN -2
 
 #define PROCESS_MAX_PROCESSES 32
+#define PROCESS_MAX_NAMESIZE 256
+
+typedef enum {
+  PROCESS_RUNNING;
+  PROCESS_ZOMBIE;
+  PROCESS_DEAD;
+  PROCESS_FREE;
+} p_thread_state_t;
 
 typedef struct {
-  /* STUB: Put something here. */
-  int dummy; /* Remove this. */
+  process_id_t pid;
+  char name[PROCESS_MAX_NAMESIZE];
+  p_thread_state_t state;
 } process_control_block_t;
 
 /* Initialize the process table.  This must be called during kernel
@@ -73,5 +82,7 @@ process_id_t process_get_current_process(void);
 
 /* Return PCB of current process. */
 process_control_block_t *process_get_current_process_entry(void);
+
+
 
 #endif

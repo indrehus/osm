@@ -61,10 +61,10 @@ process_control_block_t process_table[PROCESS_MAX_PROCESSES];
  * Therefore this function is not suitable to allow startup of
  * arbitrary processes.
  *
- * @executable The name of the executable to be run in the userland
+ * @pid The process ID of the executable to be run in the userland
  * process
  */
-void process_start(const char *executable)
+void process_start(const int pid)
 {
     thread_table_t *my_entry;
     pagetable_t *pagetable;
@@ -73,12 +73,15 @@ void process_start(const char *executable)
     uint32_t stack_bottom;
     elf_info_t elf;
     openfile_t file;
+    char *executable = process_table[pid].name;
 
     int i;
 
     interrupt_status_t intr_status;
 
     my_entry = thread_get_current_thread_entry();
+
+    thread_get_current_
 
     /* If the pagetable of this thread is not NULL, we are trying to
        run a userland process for a second time in the same thread.
@@ -193,15 +196,20 @@ void process_init() {
 }
 
 process_id_t process_spawn(const char *executable) {
-  executable = executable;
-  KERNEL_PANIC("Not implemented.");
-  return 0; /* Dummy */
+  process_id_t pid = process_get_free();
+  stringcpy(process_table[pid].name, executable, 256);
+  process_table[pid].pid = pid;
+  thread_create(process_start(pid));
+  return pid;
 }
 
 /* Stop the process and the thread it runs in. Sets the return value as well */
 void process_finish(int retval) {
-  retval=retval;
-  KERNEL_PANIC("Not implemented.");
+  process_table[process_get_current_process].pid = -1;ik,
+  thread_table_t *thr = thread_get_current_thread_entry();
+  vm_destroy_pagetable(thr->pagetable);
+  thr->pagetable = NULL;
+  thread_finish();
 }
 
 int process_join(process_id_t pid) {
@@ -223,6 +231,25 @@ process_control_block_t *process_get_current_process_entry(void)
 
 process_control_block_t *process_get_process_entry(process_id_t pid) {
     return &process_table[pid];
+}
+
+/* Finds free position in process table.
+ *
+ * return
+ *
+ */
+process_id_t process_get_free()
+{
+  int i;
+
+  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
+    if (process_table[i].pid == -1) {
+      return i;
+    }
+    else {
+      return -1;
+    }
+  }
 }
 
 
