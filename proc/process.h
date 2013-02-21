@@ -58,6 +58,7 @@ typedef enum {
 
 typedef struct {
   process_id_t pid;
+  process_id_t parent;
   char name[PROCESS_MAX_NAMESIZE];
   p_thread_state_t state;
 } process_control_block_t;

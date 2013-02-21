@@ -53,7 +53,7 @@ void process_finish (int retval) {
 	// Do stuff.
 
 	// Finish:
-	thread_table_t *thr = thread_fet _current_thread_entry();
+	thread_table_t *thr = thread_get _current_thread_entry();
 	vm_destroy_pagetable(thr->pagetable);
 	thr->pagetable = NULL;
 

@@ -197,8 +197,12 @@ void process_init() {
 
 process_id_t process_spawn(const char *executable) {
   process_id_t pid = process_get_free();
+  if (pid == PROCESS_PTABLE_FULL) {
+    KERNEL_PANIC("process_table is full.");
+  }
   stringcpy(process_table[pid].name, executable, 256);
   process_table[pid].pid = pid;
+  process_table[pid].parent = process_get_current_process();
   thread_create(process_start(pid));
   return pid;
 }
@@ -213,8 +217,23 @@ void process_finish(int retval) {
 }
 
 int process_join(process_id_t pid) {
-  pid=pid;
-  KERNEL_PANIC("Not implemented.");
+  // Ensure that pid is a child of the current process.
+  if (process_table[pid].parent != process_get_current_process()) {
+    return PROCESS_ILLEGAL_JOIN;
+  }
+  interrupt_status_t state = _interrupt_disable();
+  spinlock_acquire(&slock);
+  while (process_table[pid].state != PROCESS_ZOMBIE) {
+    sleepq_add(BLOBFIXBLOBTHIS!!!);
+    spinlock_release(&slock);
+    thread_switch();
+    spinlock_acquire(&slock);
+  }
+
+  // Do stuff
+
+  spinlock_release(&slock);
+  _interrupt_set_state(state);
   return 0; /* Dummy */
 }
 
@@ -240,16 +259,14 @@ process_control_block_t *process_get_process_entry(process_id_t pid) {
  */
 process_id_t process_get_free()
 {
-  int i;
+  process_id_t i;
 
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
-    if (process_table[i].pid == -1) {
+    if (process_table[i].state == PROCESS_FREE) {
       return i;
     }
-    else {
-      return -1;
-    }
   }
+  return PROCESS_PTABLE_FULL;
 }
 
 
