@@ -14,7 +14,7 @@ Linker script and memory map
 
                 0x0000000000001000                . = 0x1000
 
-ro_segment      0x0000000000001000      0x494
+ro_segment      0x0000000000001000      0x5c0
  *(.text .rodata .rodata.*)
  .text          0x0000000000001000       0x24 crt.o
                 0x0000000000001000                _start
@@ -36,8 +36,9 @@ ro_segment      0x0000000000001000      0x494
                 0x0000000000001368                syscall_write
                 0x00000000000013bc                syscall_create
                 0x000000000000140c                syscall_delete
- .text          0x0000000000001454       0x40 readwrite.o
+ .text          0x0000000000001454      0x138 readwrite.o
                 0x0000000000001454                main
+ .rodata        0x000000000000158c       0x34 readwrite.o
 
 rw_segment      0x0000000000002000        0x0
  *(.data .bss COMMON)
@@ -98,6 +99,7 @@ syscall_execp                                     lib.o
 syscall_exit                                      lib.o
 syscall_fork                                      lib.o
 syscall_halt                                      lib.o
+                                                  readwrite.o
 syscall_join                                      lib.o
 syscall_memlimit                                  lib.o
 syscall_open                                      lib.o
@@ -105,3 +107,4 @@ syscall_read                                      lib.o
                                                   readwrite.o
 syscall_seek                                      lib.o
 syscall_write                                     lib.o
+                                                  readwrite.o
