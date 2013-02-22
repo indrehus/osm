@@ -45,15 +45,19 @@ void process_start(const char *executable);
 
 #define PROCESS_PTABLE_FULL  -1
 #define PROCESS_ILLEGAL_JOIN -2
+#define PROCESS_LEGAL_JOIN 2
+
 
 #define PROCESS_MAX_PROCESSES 32
 #define PROCESS_MAX_NAMESIZE 256
 
+#include "kernel/semaphore.h"
+
 typedef enum {
-  PROCESS_RUNNING;
-  PROCESS_ZOMBIE;
-  PROCESS_DEAD;
-  PROCESS_FREE;
+  PROCESS_RUNNING,
+  PROCESS_ZOMBIE,
+  PROCESS_DEAD,
+  PROCESS_FREE,
 } p_thread_state_t;
 
 typedef struct {
@@ -61,6 +65,7 @@ typedef struct {
   process_id_t parent;
   char name[PROCESS_MAX_NAMESIZE];
   p_thread_state_t state;
+  semaphore_t *sem;
 } process_control_block_t;
 
 /* Initialize the process table.  This must be called during kernel

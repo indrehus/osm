@@ -52,6 +52,9 @@
 
 process_control_block_t process_table[PROCESS_MAX_PROCESSES];
 
+/** Spinlock which must be held when manipulating the process table */
+spinlock_t process_table_slock;
+
 /**
  * Starts one userland process. The thread calling this function will
  * be used to run the process and will therefore never return from
@@ -73,7 +76,9 @@ void process_start(const int pid)
     uint32_t stack_bottom;
     elf_info_t elf;
     openfile_t file;
+    spinlock_acquire(&process_table_slock);
     char *executable = process_table[pid].name;
+    spinlock_release(&process_table_slock);
 
     int i;
 
@@ -193,9 +198,11 @@ void process_start(const int pid)
 
 void process_init() {
   int i;
+  spinlock_acquire(&process_table_slock);
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
     process_table[i].state = PROCESS_FREE;
   }
+  spinlock_release(&process_table_slock);
 }
 
 process_id_t process_spawn(const char *executable) {
@@ -203,23 +210,44 @@ process_id_t process_spawn(const char *executable) {
   if (pid == PROCESS_PTABLE_FULL) {
     KERNEL_PANIC("process_table is full.");
   }
-  stringcpy(process_table[pid].name, executable, 256);
-  process_table[pid].pid = pid;
-  process_table[pid].parent = process_get_current_process();
-  process_table[pid].state = PROCESS_RUNNING;
+  
+  spinlock_acquire(&process_table_slock);
+  process_control_block_t *myentry = &process_table[pid];
+  process_id_t par = process_get_current_process();
+  stringcpy(myentry->name, executable, 256);
+  myentry->pid = pid;
+  myentry->parent = par;
+  myentry->state = PROCESS_RUNNING;
+  if (par != -1) {
+    myentry->sem = process_table[par].sem;
+  }
+  else {
+    myentry->sem = semaphore_create(0);
+  }
+  spinlock_release(&process_table_slock);
+
   thread_create(process_start(pid));
   return pid;
 }
 
 /* Stop the process and the thread it runs in. Sets the return value as well */
 void process_finish(int retval) {
+  if (retval < 0) {
+    KERNEL_PANIC("error: process_finish received negative arg");
+  }
+
   process_control_block_t *my_entry = process_get_current_process_entry();
+
+  spinlock_acquire(&process_table_slock);
   if (my_entry->parent != -1) {
     my_entry->state = PROCESS_ZOMBIE;
   }
   else {
     my_entry->state = PROCESS_FREE;
+    semaphore_destroy(my_entry->sem);
   }
+  spinlock_release(&process_table_slock);
+
   thread_table_t *thr = thread_get_current_thread_entry();
   vm_destroy_pagetable(thr->pagetable);
   thr->pagetable = NULL;
@@ -227,24 +255,32 @@ void process_finish(int retval) {
 }
 
 int process_join(process_id_t pid) {
+  
   // Ensure that pid is a child of the current process.
   if (process_table[pid].parent != process_get_current_process()) {
     return PROCESS_ILLEGAL_JOIN;
   }
   interrupt_status_t state = _interrupt_disable();
-  spinlock_acquire(&slock);
+  semaphore_t *sem = process_get_current_process_entry()->sem;
+  spinlock_acquire(&(sem->slock));
   while (process_table[pid].state != PROCESS_ZOMBIE) {
-    sleepq_add(BLOBFIXBLOBTHIS!!!);
-    spinlock_release(&slock);
+    sleepq_add(sem);
+    spinlock_release(&(sem->slock));
     thread_switch();
-    spinlock_acquire(&slock);
+    spinlock_acquire(&(sem->slock));
   }
 
   // Do stuff
+  semaphore_V(sem);
 
-  spinlock_release(&slock);
+  spinlock_release(&(sem->slock));
   _interrupt_set_state(state);
-  return 0; /* Dummy */
+
+  spinlock_acquire(&process_table_slock);
+  process_table[pid].state = PROCESS_FREE;
+  spinlock_release(&process_table_slock);
+
+  return PROCESS_LEGAL_JOIN;
 }
 
 
@@ -278,6 +314,7 @@ process_id_t process_get_free()
   }
   return PROCESS_PTABLE_FULL;
 }
+
 
 
 /** @} */
