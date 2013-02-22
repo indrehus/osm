@@ -81,7 +81,7 @@ void process_start(const int pid)
 
     my_entry = thread_get_current_thread_entry();
 
-    thread_get_current_
+    my_entry->process_id = pid;
 
     /* If the pagetable of this thread is not NULL, we are trying to
        run a userland process for a second time in the same thread.
@@ -192,7 +192,10 @@ void process_start(const int pid)
 }
 
 void process_init() {
-  KERNEL_PANIC("Not implemented.");
+  int i;
+  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
+    process_table[i].state = PROCESS_FREE;
+  }
 }
 
 process_id_t process_spawn(const char *executable) {
@@ -209,7 +212,7 @@ process_id_t process_spawn(const char *executable) {
 
 /* Stop the process and the thread it runs in. Sets the return value as well */
 void process_finish(int retval) {
-  process_table[process_get_current_process].pid = -1;ik,
+  process_table[process_get_current_process].state = PROCESS_FREE;
   thread_table_t *thr = thread_get_current_thread_entry();
   vm_destroy_pagetable(thr->pagetable);
   thr->pagetable = NULL;
