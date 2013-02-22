@@ -206,13 +206,20 @@ process_id_t process_spawn(const char *executable) {
   stringcpy(process_table[pid].name, executable, 256);
   process_table[pid].pid = pid;
   process_table[pid].parent = process_get_current_process();
+  process_table[pid].state = PROCESS_RUNNING;
   thread_create(process_start(pid));
   return pid;
 }
 
 /* Stop the process and the thread it runs in. Sets the return value as well */
 void process_finish(int retval) {
-  process_table[process_get_current_process].state = PROCESS_FREE;
+  process_control_block_t *my_entry = process_get_current_process_entry();
+  if (my_entry->parent != -1) {
+    my_entry->state = PROCESS_ZOMBIE;
+  }
+  else {
+    my_entry->state = PROCESS_FREE;
+  }
   thread_table_t *thr = thread_get_current_thread_entry();
   vm_destroy_pagetable(thr->pagetable);
   thr->pagetable = NULL;
