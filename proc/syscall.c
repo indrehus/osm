@@ -37,6 +37,9 @@
 #include "proc/syscall.h"
 #include "proc/read.h"
 #include "proc/write.h"
+#include "proc/exec.h"
+#include "proc/exit.h"
+#include "proc/join.h"
 #include "kernel/halt.h"
 #include "kernel/panic.h"
 #include "lib/libc.h"
@@ -77,6 +80,17 @@ void syscall_handle(context_t *user_context)
 		      (const void *)user_context->cpu_regs[MIPS_REGISTER_A2],
                       user_context->cpu_regs[MIPS_REGISTER_A3]);
         break;
+    case SYSCALL_EXEC:
+      user_context->cpu_regs[MIPS_REGISTER_V0] = 
+        syscall_exec((const char *)user_context->cpu_regs[MIPS_REGISTER_A1]);
+      break;
+    case SYSCALL_EXIT:
+      syscall_exit(user_context->cpu_regs[MIPS_REGISTER_A1]);
+      break;
+    case SYSCALL_JOIN:
+      user_context->cpu_regs[MIPS_REGISTER_V0] = 
+	syscall_join(user_context->cpu_regs[MIPS_REGISTER_A1]);
+      break;
     default: 
         KERNEL_PANIC("Unhandled system call\n");
     }

@@ -228,7 +228,7 @@ process_id_t process_spawn(const char *executable) {
   }
   spinlock_release(&process_table_slock);
 
-  thread_create(&process_start, pid);
+  thread_create( (void (*) (uint32_t)) & process_start, pid);
   return pid;
 }
 
@@ -243,7 +243,7 @@ void process_finish(int retval) {
 
   if (my_entry->parent != -1) {
     my_entry->state = PROCESS_ZOMBIE;
-    sleepq_wakeall(my_entry->resource);
+    sleepq_wake(my_entry->resource);
   }
   else {
     my_entry->state = PROCESS_FREE;
