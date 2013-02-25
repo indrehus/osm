@@ -70,6 +70,8 @@ spinlock_t process_table_slock;
  */
 void process_start(const process_id_t pid)
 {
+  // Testing
+  kprintf("Running process_start.\n");
     thread_table_t *my_entry;
     pagetable_t *pagetable;
     uint32_t phys_page;
@@ -201,14 +203,20 @@ void process_init() {
   process_id_t i;
   spinlock_acquire(&process_table_slock);
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
+    // Testing.
+    kprintf("Initializing process table slot %d\n", (int) i);
     process_table[i].state = PROCESS_FREE;
   }
   spinlock_release(&process_table_slock);
 }
 
 process_id_t process_spawn(const char *executable) {
+  // Testing.
+  kprintf("Spawning process %s\n", executable);
   spinlock_acquire(&process_table_slock);
   process_id_t pid = process_get_free();
+  // Testing.
+  kprintf("Found free process spot %d.\n", (int) pid);
   spinlock_release(&process_table_slock);
   if (pid == PROCESS_PTABLE_FULL) {
     KERNEL_PANIC("process_table is full.");
@@ -220,6 +228,9 @@ process_id_t process_spawn(const char *executable) {
   stringcopy(myentry->name, executable, 256);
   myentry->pid = pid;
   myentry->parent = par;
+  // Testing
+  kprintf("Process has parent: %d\n", myentry->parent);
+  kprintf("Process 10 has parent: %d\n", process_table[10].parent);
   myentry->state = PROCESS_RUNNING;
   if (par != -1) {
     myentry->resource = process_table[par].resource;
@@ -227,15 +238,22 @@ process_id_t process_spawn(const char *executable) {
   else {
     int x = 42;
     myentry->resource = &x;
+    // Testing.
+    kprintf("Process %d initialized with resource %d.\n", pid, &x);
   }
   spinlock_release(&process_table_slock);
 
+  // Testing
+  kprintf("Starting thread with process %d\n", pid);
   thread_create( (void (*) (uint32_t)) & process_start, pid);
+  kprintf("process_spawn returns pid: %d\n", pid);
   return pid;
 }
 
 /* Stop the process and the thread it runs in. Sets the return value as well */
 void process_finish(int retval) {
+  // Testing.
+  kprintf("Finishing current process.\n");
   if (retval < 0) {
     KERNEL_PANIC("error: process_finish received negative arg");
   }
@@ -243,14 +261,23 @@ void process_finish(int retval) {
   spinlock_acquire(&process_table_slock);
   process_control_block_t *my_entry = process_get_current_process_entry();
   spinlock_release(&process_table_slock);
+  // Testing
+  kprintf("Current process: %d\n", my_entry->pid);
+  kprintf("Calling process_join_children\n");
   process_join_children(my_entry->pid);
+  kprintf("Called process_join_children\n");
   spinlock_acquire(&process_table_slock);
-
+  // Testing
+  kprintf("Check: %d == -1\n", my_entry->parent);
   if (my_entry->parent != -1) {
+    // Testing
+    kprintf("Does have parent. \n");
     my_entry->state = PROCESS_ZOMBIE;
     sleepq_wake(my_entry->resource);
   }
   else {
+    // Testing
+    kprintf("Process does not have parent. \n");
     my_entry->state = PROCESS_FREE;
   }
   spinlock_release(&process_table_slock);
@@ -259,6 +286,9 @@ void process_finish(int retval) {
   vm_destroy_pagetable(thr->pagetable);
   thr->pagetable = NULL;
   thread_finish();
+  // Testing
+  thread_switch();
+  kprintf("process_finish completed\n");
 }
 
 int process_join(process_id_t pid) {

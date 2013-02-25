@@ -131,7 +131,8 @@ void init_startup_thread(uint32_t arg)
     }
 
     kprintf("Starting initial program '%s'\n", bootargs_get("initprog"));
-
+    // Added by us.
+    process_init();
     process_spawn(bootargs_get("initprog"));
 
     /* The current process_start() should never return. */
@@ -229,7 +230,6 @@ void init(void)
     /* Enter context switch, scheduler will be run automatically,
        since thread_switch() behaviour is identical to timer tick
        (thread timeslice is over). */
-    process_init();
     thread_switch();
 
     /* We should never get here */

@@ -169,6 +169,7 @@ TID_t thread_create(void (*func)(uint32_t), uint32_t arg)
     thread_table[tid].user_context = NULL;
     thread_table[tid].pagetable    = NULL;
     thread_table[tid].sleeps_on    = 0;
+    // Check: Should probably not be -1.
     thread_table[tid].process_id   = -1;
     thread_table[tid].next         = -1;
 
@@ -199,7 +200,9 @@ TID_t thread_create(void (*func)(uint32_t), uint32_t arg)
     /* enable interrupts for this new thread */
     thread_table[tid].context->status = 
         INTERRUPT_MASK_ALL | INTERRUPT_MASK_MASTER;
-
+    
+    // Testing.
+    kprintf("Returning from thread_create with tid: %d\n", tid);
     return tid;
 }
 
