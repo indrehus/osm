@@ -36,14 +36,15 @@
 
 #include "proc/process.h"
 #include "proc/elf.h"
-#include "kernel/thread.h"
 #include "kernel/assert.h"
 #include "kernel/interrupt.h"
 #include "kernel/config.h"
+#include "kernel/sleepq.h"
 #include "fs/vfs.h"
 #include "drivers/yams.h"
 #include "vm/vm.h"
 #include "vm/pagepool.h"
+#include "lib/libc.h"
 
 /** @name Process startup
  *
@@ -67,7 +68,7 @@ spinlock_t process_table_slock;
  * @pid The process ID of the executable to be run in the userland
  * process
  */
-void process_start(const int pid)
+void process_start(const process_id_t pid)
 {
     thread_table_t *my_entry;
     pagetable_t *pagetable;
@@ -214,19 +215,20 @@ process_id_t process_spawn(const char *executable) {
   spinlock_acquire(&process_table_slock);
   process_control_block_t *myentry = &process_table[pid];
   process_id_t par = process_get_current_process();
-  stringcpy(myentry->name, executable, 256);
+  stringcopy(myentry->name, executable, 256);
   myentry->pid = pid;
   myentry->parent = par;
   myentry->state = PROCESS_RUNNING;
   if (par != -1) {
-    myentry->sem = process_table[par].sem;
+    myentry->resource = process_table[par].resource;
   }
   else {
-    myentry->sem = semaphore_create(0);
+    int x = 42;
+    myentry->resource = &x;
   }
   spinlock_release(&process_table_slock);
 
-  thread_create(process_start(pid));
+  thread_create(&process_start, pid);
   return pid;
 }
 
@@ -236,15 +238,15 @@ void process_finish(int retval) {
     KERNEL_PANIC("error: process_finish received negative arg");
   }
 
+  spinlock_acquire(&process_table_slock);
   process_control_block_t *my_entry = process_get_current_process_entry();
 
-  spinlock_acquire(&process_table_slock);
   if (my_entry->parent != -1) {
     my_entry->state = PROCESS_ZOMBIE;
+    sleepq_wakeall(my_entry->resource);
   }
   else {
     my_entry->state = PROCESS_FREE;
-    semaphore_destroy(my_entry->sem);
   }
   spinlock_release(&process_table_slock);
 
@@ -255,25 +257,24 @@ void process_finish(int retval) {
 }
 
 int process_join(process_id_t pid) {
-  
+  // spinlock_acquire(&process_table_slock);
   // Ensure that pid is a child of the current process.
   if (process_table[pid].parent != process_get_current_process()) {
     return PROCESS_ILLEGAL_JOIN;
   }
   interrupt_status_t state = _interrupt_disable();
-  semaphore_t *sem = process_get_current_process_entry()->sem;
-  spinlock_acquire(&(sem->slock));
+  int *res = process_get_current_process_entry()->resource;
+  spinlock_acquire(res);
   while (process_table[pid].state != PROCESS_ZOMBIE) {
-    sleepq_add(sem);
-    spinlock_release(&(sem->slock));
+    sleepq_add(res);
+    spinlock_release(res);
     thread_switch();
-    spinlock_acquire(&(sem->slock));
+    spinlock_acquire(res);
   }
 
-  // Do stuff
-  semaphore_V(sem);
+  // Work with resource.
 
-  spinlock_release(&(sem->slock));
+  spinlock_release(res);
   _interrupt_set_state(state);
 
   spinlock_acquire(&process_table_slock);

@@ -37,10 +37,6 @@
 #ifndef BUENOS_PROC_PROCESS
 #define BUENOS_PROC_PROCESS
 
-typedef int process_id_t;
-
-void process_start(const char *executable);
-
 #define USERLAND_STACK_TOP 0x7fffeffc
 
 #define PROCESS_PTABLE_FULL  -1
@@ -51,7 +47,7 @@ void process_start(const char *executable);
 #define PROCESS_MAX_PROCESSES 32
 #define PROCESS_MAX_NAMESIZE 256
 
-#include "kernel/semaphore.h"
+typedef int process_id_t;
 
 typedef enum {
   PROCESS_RUNNING,
@@ -65,8 +61,10 @@ typedef struct {
   process_id_t parent;
   char name[PROCESS_MAX_NAMESIZE];
   p_thread_state_t state;
-  semaphore_t *sem;
+  int *resource;
 } process_control_block_t;
+
+void process_start(const process_id_t pid);
 
 /* Initialize the process table.  This must be called during kernel
    startup before any other process-related calls. */
@@ -88,6 +86,9 @@ process_id_t process_get_current_process(void);
 
 /* Return PCB of current process. */
 process_control_block_t *process_get_current_process_entry(void);
+
+/* Find free place in process table. */
+process_id_t process_get_free();
 
 
 
