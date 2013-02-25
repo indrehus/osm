@@ -198,7 +198,7 @@ void process_start(const process_id_t pid)
 }
 
 void process_init() {
-  int i;
+  process_id_t i;
   spinlock_acquire(&process_table_slock);
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
     process_table[i].state = PROCESS_FREE;
@@ -207,7 +207,9 @@ void process_init() {
 }
 
 process_id_t process_spawn(const char *executable) {
+  spinlock_acquire(&process_table_slock);
   process_id_t pid = process_get_free();
+  spinlock_release(&process_table_slock);
   if (pid == PROCESS_PTABLE_FULL) {
     KERNEL_PANIC("process_table is full.");
   }
@@ -240,6 +242,9 @@ void process_finish(int retval) {
 
   spinlock_acquire(&process_table_slock);
   process_control_block_t *my_entry = process_get_current_process_entry();
+  spinlock_release(&process_table_slock);
+  process_join_children(my_entry->pid);
+  spinlock_acquire(&process_table_slock);
 
   if (my_entry->parent != -1) {
     my_entry->state = PROCESS_ZOMBIE;
@@ -257,20 +262,28 @@ void process_finish(int retval) {
 }
 
 int process_join(process_id_t pid) {
-  // spinlock_acquire(&process_table_slock);
   // Ensure that pid is a child of the current process.
+  spinlock_acquire(&process_table_slock);
   if (process_table[pid].parent != process_get_current_process()) {
+    spinlock_release(&process_table_slock);
     return PROCESS_ILLEGAL_JOIN;
   }
+  spinlock_release(&process_table_slock);
   interrupt_status_t state = _interrupt_disable();
+  spinlock_acquire(&process_table_slock);
   int *res = process_get_current_process_entry()->resource;
+  spinlock_release(&process_table_slock);
+  spinlock_acquire(&process_table_slock);
   spinlock_acquire(res);
   while (process_table[pid].state != PROCESS_ZOMBIE) {
     sleepq_add(res);
+    spinlock_release(&process_table_slock);
     spinlock_release(res);
     thread_switch();
+    spinlock_acquire(&process_table_slock);
     spinlock_acquire(res);
   }
+  spinlock_release(&process_table_slock);
 
   // Work with resource.
 
@@ -314,6 +327,25 @@ process_id_t process_get_free()
     }
   }
   return PROCESS_PTABLE_FULL;
+}
+
+/* Calls process_join on all process with specified parent.
+ *
+ * @param pid
+ * process_id of parent
+ */
+void process_join_children(process_id_t pid)
+{
+  process_id_t i;
+  spinlock_acquire(&process_table_slock);
+  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
+    if (process_table[i].parent == pid) {
+      spinlock_release(&process_table_slock);
+      process_join(i);
+      spinlock_acquire(&process_table_slock);
+    }
+  }
+  spinlock_release(&process_table_slock);
 }
 
 

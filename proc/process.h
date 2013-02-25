@@ -90,6 +90,9 @@ process_control_block_t *process_get_current_process_entry(void);
 /* Find free place in process table. */
 process_id_t process_get_free();
 
+/* Call process_join on children of pid */
+void process_join_children(process_id_t pid);
+
 
 
 #endif
