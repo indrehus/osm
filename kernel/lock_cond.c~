@@ -1,0 +1,26 @@
+#include "kernel/lock_cond.h"
+#include "kernel/sleepq.h"
+#include "kernel/thread.h"
+
+#define LOCK_RESET_SUCCESS 0
+
+int lock_reset (lock_t *lock)
+{
+  *lock = 1;
+  return LOCK_RESET_SUCCESS;
+}
+
+void lock_acquire(lock_t *lock)
+{
+  while (*lock != 1) {
+    sleepq_add(lock);
+    thread_switch();
+  }
+  *lock = 0;
+}
+
+void lock_release(lock_t *lock)
+{
+  *lock = 1;
+  sleepq_wake(lock);
+}
