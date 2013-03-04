@@ -45,7 +45,7 @@
 
 
 #define PROCESS_MAX_PROCESSES 32
-#define PROCESS_MAX_NAMESIZE 256
+#define PROCESS_MAX_NAMESIZE 32
 
 typedef int process_id_t;
 

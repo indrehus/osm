@@ -79,9 +79,11 @@ void process_start(const process_id_t pid)
     uint32_t stack_bottom;
     elf_info_t elf;
     openfile_t file;
+    interrupt_status_t intr_status = _interrupt_disable();
     spinlock_acquire(&process_table_slock);
     char *executable = process_table[pid].name;
     spinlock_release(&process_table_slock);
+    _interrupt_set_state(intr_status);
 
     int i;
 
@@ -201,6 +203,8 @@ void process_start(const process_id_t pid)
 
 void process_init() {
   process_id_t i;
+  interrupt_status_t intr_status = _interrupt_disable();
+  spinlock_reset(&process_table_slock);
   spinlock_acquire(&process_table_slock);
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
     // Testing.
@@ -208,24 +212,29 @@ void process_init() {
     process_table[i].state = PROCESS_FREE;
   }
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
+
 }
 
 process_id_t process_spawn(const char *executable) {
   // Testing.
   kprintf("Spawning process %s\n", executable);
+  interrupt_status_t intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   process_id_t pid = process_get_free();
   // Testing.
   kprintf("Found free process spot %d.\n", (int) pid);
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
   if (pid == PROCESS_PTABLE_FULL) {
     KERNEL_PANIC("process_table is full.");
   }
   
+  intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   process_control_block_t *myentry = &process_table[pid];
   process_id_t par = process_get_current_process();
-  stringcopy(myentry->name, executable, 256);
+  stringcopy(myentry->name, executable, PROCESS_MAX_NAMESIZE);
   myentry->pid = pid;
   myentry->parent = par;
   // Testing
@@ -242,10 +251,13 @@ process_id_t process_spawn(const char *executable) {
     kprintf("Process %d initialized with resource %d.\n", pid, &x);
   }
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
 
   // Testing
   kprintf("Starting thread with process %d\n", pid);
+  intr_status = _interrupt_disable();
   thread_create( (void (*) (uint32_t)) & process_start, pid);
+  _interrupt_set_state(intr_status);
   kprintf("process_spawn returns pid: %d\n", pid);
   return pid;
 }
@@ -257,15 +269,18 @@ void process_finish(int retval) {
   if (retval < 0) {
     KERNEL_PANIC("error: process_finish received negative arg");
   }
-
+  interrupt_status_t intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   process_control_block_t *my_entry = process_get_current_process_entry();
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
+
   // Testing
   kprintf("Current process: %d\n", my_entry->pid);
   kprintf("Calling process_join_children\n");
   process_join_children(my_entry->pid);
   kprintf("Called process_join_children\n");
+  intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   // Testing
   kprintf("Check: %d == -1\n", my_entry->parent);
@@ -281,6 +296,7 @@ void process_finish(int retval) {
     my_entry->state = PROCESS_FREE;
   }
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
 
   thread_table_t *thr = thread_get_current_thread_entry();
   vm_destroy_pagetable(thr->pagetable);
@@ -293,23 +309,22 @@ void process_finish(int retval) {
 
 int process_join(process_id_t pid) {
   // Ensure that pid is a child of the current process.
+  interrupt_status_t intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   if (process_table[pid].parent != process_get_current_process()) {
     spinlock_release(&process_table_slock);
+    _interrupt_set_state(intr_status);
     return PROCESS_ILLEGAL_JOIN;
   }
-  spinlock_release(&process_table_slock);
-  interrupt_status_t state = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
   int *res = process_get_current_process_entry()->resource;
-  spinlock_release(&process_table_slock);
-  spinlock_acquire(&process_table_slock);
   spinlock_acquire(res);
   while (process_table[pid].state != PROCESS_ZOMBIE) {
     sleepq_add(res);
     spinlock_release(&process_table_slock);
     spinlock_release(res);
+    _interrupt_set_state(intr_status);
     thread_switch();
+    intr_status = _interrupt_disable();
     spinlock_acquire(&process_table_slock);
     spinlock_acquire(res);
   }
@@ -318,11 +333,9 @@ int process_join(process_id_t pid) {
   // Work with resource.
 
   spinlock_release(res);
-  _interrupt_set_state(state);
-
-  spinlock_acquire(&process_table_slock);
   process_table[pid].state = PROCESS_FREE;
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
 
   return PROCESS_LEGAL_JOIN;
 }
@@ -364,18 +377,21 @@ process_id_t process_get_free()
  * @param pid
  * process_id of parent
  */
-void process_join_children(process_id_t pid)
-{
+void process_join_children(process_id_t pid) {
   process_id_t i;
+  interrupt_status_t intr_status = _interrupt_disable();
   spinlock_acquire(&process_table_slock);
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
     if (process_table[i].parent == pid) {
       spinlock_release(&process_table_slock);
+      _interrupt_set_state(intr_status);
       process_join(i);
+      intr_status = _interrupt_disable();
       spinlock_acquire(&process_table_slock);
     }
   }
   spinlock_release(&process_table_slock);
+  _interrupt_set_state(intr_status);
 }
 
 
