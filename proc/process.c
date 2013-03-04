@@ -304,21 +304,22 @@ int process_join(process_id_t pid) {
     _interrupt_set_state(intr_status);
     return PROCESS_ILLEGAL_JOIN;
   }
-  spinlock_acquire(&(process_get_current_process_entry()));
+  int *parent_id = (int *) process_get_current_process_entry();
+  spinlock_acquire(parent_id);
   process_get_current_process_entry()->state = PROCESS_JOINING;
   while (process_table[pid].state != PROCESS_ZOMBIE) {
-    sleepq_add(&(process_get_current_process_entry()));
+    sleepq_add(process_get_current_process_entry());
     spinlock_release(&process_table_slock);
-    spinlock_release(&(process_get_current_process_entry()));
+    spinlock_release(parent_id);
     thread_switch();
     spinlock_acquire(&process_table_slock);
-    spinlock_acquire(&(process_get_current_process_entry()));
+    spinlock_acquire(parent_id);
   }
   spinlock_release(&process_table_slock);
 
   // Work with resource.
 
-  spinlock_release(&(process_get_current_process_entry()));
+  spinlock_release(parent_id);
   process_table[pid].state = PROCESS_FREE;
   process_table[pid].parent = -1;
   process_get_current_process_entry()->state = PROCESS_RUNNING;

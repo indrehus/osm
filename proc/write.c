@@ -17,7 +17,7 @@ int syscall_write(int filehandle, const void *buffer, int length) {
   }
 
   /* Find system console (first tty) */
-  dev = device_get(YAMS_TYPECODE_TTY, filehandle);
+  dev = device_get(YAMS_TYPECODE_TTY, 0);
   KERNEL_ASSERT(dev != NULL);
 
   gcd = (gcd_t *)dev->generic_device;
