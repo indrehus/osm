@@ -52,7 +52,7 @@ typedef int process_id_t;
 typedef enum {
   PROCESS_RUNNING,
   PROCESS_ZOMBIE,
-  PROCESS_DEAD,
+  PROCESS_JOINING,
   PROCESS_FREE,
 } p_thread_state_t;
 
@@ -61,7 +61,6 @@ typedef struct {
   process_id_t parent;
   char name[PROCESS_MAX_NAMESIZE];
   p_thread_state_t state;
-  int *resource;
 } process_control_block_t;
 
 void process_start(const process_id_t pid);

@@ -238,15 +238,6 @@ process_id_t process_spawn(const char *executable) {
   kprintf("Process has parent: %d\n", myentry->parent);
   kprintf("Process 10 has parent: %d\n", process_table[10].parent);
   myentry->state = PROCESS_RUNNING;
-  if (par != -1) {
-    myentry->resource = process_table[par].resource;
-  }
-  else {
-    int x = 42;
-    myentry->resource = &x;
-    // Testing.
-    kprintf("Process %d initialized with resource %d.\n", pid, &x);
-  }
   spinlock_release(&process_table_slock);
   _interrupt_set_state(intr_status);
 
@@ -285,7 +276,7 @@ void process_finish(int retval) {
     // Testing
     kprintf("Does have parent. \n");
     my_entry->state = PROCESS_ZOMBIE;
-    sleepq_wake(my_entry->resource);
+    sleepq_wake(&(process_table[my_entry->parent]));
   }
   else {
     // Testing
@@ -313,23 +304,24 @@ int process_join(process_id_t pid) {
     _interrupt_set_state(intr_status);
     return PROCESS_ILLEGAL_JOIN;
   }
-  int *res = process_get_current_process_entry()->resource;
-  spinlock_acquire(res);
+  spinlock_acquire(&(process_get_current_process_entry()));
+  process_get_current_process_entry()->state = PROCESS_JOINING;
   while (process_table[pid].state != PROCESS_ZOMBIE) {
-    sleepq_add(res);
+    sleepq_add(&(process_get_current_process_entry()));
     spinlock_release(&process_table_slock);
-    spinlock_release(res);
+    spinlock_release(&(process_get_current_process_entry()));
     thread_switch();
     spinlock_acquire(&process_table_slock);
-    spinlock_acquire(res);
+    spinlock_acquire(&(process_get_current_process_entry()));
   }
   spinlock_release(&process_table_slock);
 
   // Work with resource.
 
-  spinlock_release(res);
+  spinlock_release(&(process_get_current_process_entry()));
   process_table[pid].state = PROCESS_FREE;
   process_table[pid].parent = -1;
+  process_get_current_process_entry()->state = PROCESS_RUNNING;
   spinlock_release(&process_table_slock);
   _interrupt_set_state(intr_status);
 
