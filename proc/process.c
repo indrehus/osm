@@ -253,7 +253,7 @@ process_id_t process_spawn(const char *executable) {
   // Testing
   kprintf("Starting thread with process %d\n", pid);
   intr_status = _interrupt_disable();
-  thread_create( (void (*) (uint32_t)) & process_start, pid);
+  thread_run(thread_create( (void (*) (uint32_t)) & process_start, pid));
   _interrupt_set_state(intr_status);
   kprintf("process_spawn returns pid: %d\n", pid);
   return pid;
@@ -329,6 +329,7 @@ int process_join(process_id_t pid) {
 
   spinlock_release(res);
   process_table[pid].state = PROCESS_FREE;
+  process_table[pid].parent = -1;
   spinlock_release(&process_table_slock);
   _interrupt_set_state(intr_status);
 
