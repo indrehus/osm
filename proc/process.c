@@ -68,8 +68,7 @@ spinlock_t process_table_slock;
  * @pid The process ID of the executable to be run in the userland
  * process
  */
-void process_start(const process_id_t pid)
-{
+void process_start(const process_id_t pid) {
   // Testing
   kprintf("Running process_start.\n");
     thread_table_t *my_entry;
@@ -83,7 +82,6 @@ void process_start(const process_id_t pid)
     spinlock_acquire(&process_table_slock);
     char *executable = process_table[pid].name;
     spinlock_release(&process_table_slock);
-    _interrupt_set_state(intr_status);
 
     int i;
 
@@ -99,7 +97,6 @@ void process_start(const process_id_t pid)
     pagetable = vm_create_pagetable(thread_get_current_thread());
     KERNEL_ASSERT(pagetable != NULL);
 
-    intr_status = _interrupt_disable();
     my_entry->pagetable = pagetable;
     _interrupt_set_state(intr_status);
 
@@ -194,7 +191,9 @@ void process_start(const process_id_t pid)
     user_context.cpu_regs[MIPS_REGISTER_SP] = USERLAND_STACK_TOP;
     user_context.pc = elf.entry_point;
 
+    intr_status = _interrupt_disable();
     thread_goto_userland(&user_context);
+    _interrupt_set_state(intr_status);
 
     KERNEL_PANIC("thread_goto_userland failed.");
 }
@@ -294,7 +293,6 @@ void process_finish(int retval) {
     my_entry->state = PROCESS_FREE;
   }
   spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
 
   thread_table_t *thr = thread_get_current_thread_entry();
   vm_destroy_pagetable(thr->pagetable);
@@ -302,6 +300,7 @@ void process_finish(int retval) {
   thread_finish();
   // Testing
   thread_switch();
+  _interrupt_set_state(intr_status);
   kprintf("process_finish completed\n");
 }
 
@@ -320,9 +319,7 @@ int process_join(process_id_t pid) {
     sleepq_add(res);
     spinlock_release(&process_table_slock);
     spinlock_release(res);
-    _interrupt_set_state(intr_status);
     thread_switch();
-    intr_status = _interrupt_disable();
     spinlock_acquire(&process_table_slock);
     spinlock_acquire(res);
   }
@@ -339,13 +336,11 @@ int process_join(process_id_t pid) {
 }
 
 
-process_id_t process_get_current_process(void)
-{
+process_id_t process_get_current_process(void) {
     return thread_get_current_thread_entry()->process_id;
 }
 
-process_control_block_t *process_get_current_process_entry(void)
-{
+process_control_block_t *process_get_current_process_entry(void) {
     return &process_table[process_get_current_process()];
 }
 
@@ -358,8 +353,7 @@ process_control_block_t *process_get_process_entry(process_id_t pid) {
  * return
  *
  */
-process_id_t process_get_free()
-{
+process_id_t process_get_free() {
   process_id_t i;
 
   for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
