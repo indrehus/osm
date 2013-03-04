@@ -57,6 +57,6 @@ void condition_signal(cond_t *cond, lock_t *lock)
 void condition_broadcast(cond_t *cond, lock_t *lock)
 {
   lock_acquire(lock);
-  sleepq_wakeall(cond);
+  sleepq_wake_all(cond);
   lock_release(lock);
 }

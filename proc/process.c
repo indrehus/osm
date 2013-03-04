@@ -87,8 +87,6 @@ void process_start(const process_id_t pid)
 
     int i;
 
-    interrupt_status_t intr_status;
-
     my_entry = thread_get_current_thread_entry();
 
     my_entry->process_id = pid;
