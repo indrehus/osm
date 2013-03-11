@@ -1,6 +1,26 @@
 This file documents any major changes made to the system
 between releases. The latest changes appear at the top of the list.
 
+BUENOS 1.1.2-g4 (for use in OSM)
+
+       * proc/process.c proc/process.h proc/syscall.c init/main.c
+       Finished process implementation and added stubs for file system
+       and memlimit handling.  Note that, for simplicity, this
+       implementation does not handle processes dying without joining
+       their children.
+
+BUENOS 1.1.2-g2 (for use in OSM)
+
+       * proc/process.c proc/process.h:
+       Prepared stubs for process handling.  The process table is
+       defined, but its entries contain only dummy values.
+
+BUENOS 1.1.2-g1 (for use in OSM)
+
+       * Makefile:
+       Added -std=c99 to CFLAGS.  -pedantic cannot be added, as
+       kernel/interrupt.c relies on undefined behaviour (treating
+       function pointers as pointers to memory).
 
 BUENOS 1.1.2 Release (2012-02-03)
 

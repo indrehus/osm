@@ -36,25 +36,65 @@
 
 #include "proc/process.h"
 #include "proc/elf.h"
+#include "kernel/thread.h"
 #include "kernel/assert.h"
 #include "kernel/interrupt.h"
 #include "kernel/config.h"
-#include "kernel/sleepq.h"
 #include "fs/vfs.h"
 #include "drivers/yams.h"
 #include "vm/vm.h"
 #include "vm/pagepool.h"
-#include "lib/libc.h"
+#include "kernel/sleepq.h"
+
 
 /** @name Process startup
  *
- * This module contains facilities for managing userland process.
+ * This module contains a function to start a userland process.
  */
 
-process_control_block_t process_table[PROCESS_MAX_PROCESSES];
+process_table_t process_table[PROCESS_MAX_PROCESSES];
 
-/** Spinlock which must be held when manipulating the process table */
 spinlock_t process_table_slock;
+
+void process_reset(process_id_t pid)
+{
+    process_table[pid].state         = PROCESS_FREE;
+    process_table[pid].executable[0] = 0;
+    process_table[pid].retval        = 0;
+    process_table[pid].cFiles        = 0;
+}
+
+/* Initialize process table and spinlock */
+void process_init()
+{
+    int i;
+    spinlock_reset(&process_table_slock);
+    for (i = 0; i <= PROCESS_MAX_PROCESSES; ++i)
+        process_reset(i);
+}
+
+/* Find a free slot in the process table. Returns PROCESS_MAX_PROCESSES
+ * if the table is full. */
+process_id_t alloc_process_id()
+{
+    int i;
+    interrupt_status_t intr_status;
+
+    intr_status = _interrupt_disable();
+    spinlock_acquire(&process_table_slock);
+    for (i = 0; i <= PROCESS_MAX_PROCESSES; ++i)
+    {
+        if (process_table[i].state == PROCESS_FREE)
+        {
+            process_table[i].state = PROCESS_RUNNING;
+            break;
+        }
+    }
+    spinlock_release(&process_table_slock);
+    _interrupt_set_state(intr_status);
+    return i;
+}
+
 
 /**
  * Starts one userland process. The thread calling this function will
@@ -65,12 +105,11 @@ spinlock_t process_table_slock;
  * Therefore this function is not suitable to allow startup of
  * arbitrary processes.
  *
- * @pid The process ID of the executable to be run in the userland
+ * @executable The name of the executable to be run in the userland
  * process
  */
-void process_start(const process_id_t pid) {
-  // Testing
-  kprintf("Running process_start.\n");
+void process_start(process_id_t pid)
+{
     thread_table_t *my_entry;
     pagetable_t *pagetable;
     uint32_t phys_page;
@@ -78,16 +117,15 @@ void process_start(const process_id_t pid) {
     uint32_t stack_bottom;
     elf_info_t elf;
     openfile_t file;
-    interrupt_status_t intr_status = _interrupt_disable();
-    spinlock_acquire(&process_table_slock);
-    char *executable = process_table[pid].name;
-    spinlock_release(&process_table_slock);
+    char *executable;
 
     int i;
 
-    my_entry = thread_get_current_thread_entry();
+    interrupt_status_t intr_status;
 
+    my_entry = thread_get_current_thread_entry();
     my_entry->process_id = pid;
+    executable = process_table[pid].executable;
 
     /* If the pagetable of this thread is not NULL, we are trying to
        run a userland process for a second time in the same thread.
@@ -97,7 +135,13 @@ void process_start(const process_id_t pid) {
     pagetable = vm_create_pagetable(thread_get_current_thread());
     KERNEL_ASSERT(pagetable != NULL);
 
+    intr_status = _interrupt_disable();
     my_entry->pagetable = pagetable;
+
+    /* Update TLB to allow access to the virtual addresses of the
+       segments. */
+    _tlb_set_asid(thread_get_current_thread());
+
     _interrupt_set_state(intr_status);
 
     file = vfs_open((char *)executable);
@@ -112,31 +156,14 @@ void process_start(const process_id_t pid) {
        (including userland stack). Since we don't have proper tlb
        handling code, all these pages must fit into TLB. */
     KERNEL_ASSERT(elf.ro_pages + elf.rw_pages + CONFIG_USERLAND_STACK_SIZE
-		  <= _tlb_get_maxindex() + 1);
+            <= _tlb_get_maxindex() + 1);
 
     /* Allocate and map stack */
     for(i = 0; i < CONFIG_USERLAND_STACK_SIZE; i++) {
         phys_page = pagepool_get_phys_page();
         KERNEL_ASSERT(phys_page != 0);
-        vm_map(my_entry->pagetable, phys_page, 
-               (USERLAND_STACK_TOP & PAGE_SIZE_MASK) - i*PAGE_SIZE, 1);
-    }
-
-    /* Allocate and map pages for the segments. We assume that
-       segments begin at page boundary. (The linker script in tests
-       directory creates this kind of segments) */
-    for(i = 0; i < (int)elf.ro_pages; i++) {
-        phys_page = pagepool_get_phys_page();
-        KERNEL_ASSERT(phys_page != 0);
-        vm_map(my_entry->pagetable, phys_page, 
-               elf.ro_vaddr + i*PAGE_SIZE, 1);
-    }
-
-    for(i = 0; i < (int)elf.rw_pages; i++) {
-        phys_page = pagepool_get_phys_page();
-        KERNEL_ASSERT(phys_page != 0);
-        vm_map(my_entry->pagetable, phys_page, 
-               elf.rw_vaddr + i*PAGE_SIZE, 1);
+        vm_map(my_entry->pagetable, phys_page,
+                (USERLAND_STACK_TOP & PAGE_SIZE_MASK) - i*PAGE_SIZE, 1);
     }
 
     /* Put the mapped pages into TLB. Here we again assume that the
@@ -145,33 +172,61 @@ void process_start(const process_id_t pid) {
     intr_status = _interrupt_disable();
     tlb_fill(my_entry->pagetable);
     _interrupt_set_state(intr_status);
-    
+
     /* Now we may use the virtual addresses of the segments. */
+
+    /* Allocate and map pages for the segments. We assume that
+       segments begin at page boundary. (The linker script in tests
+       directory creates this kind of segments) */
+    for(i = 0; i < (int)elf.ro_pages; i++) {
+        phys_page = pagepool_get_phys_page();
+        KERNEL_ASSERT(phys_page != 0);
+        vm_map(my_entry->pagetable, phys_page,
+                elf.ro_vaddr + i*PAGE_SIZE, 1);
+    }
+
+    for(i = 0; i < (int)elf.rw_pages; i++) {
+        phys_page = pagepool_get_phys_page();
+        KERNEL_ASSERT(phys_page != 0);
+        vm_map(my_entry->pagetable, phys_page,
+                elf.rw_vaddr + i*PAGE_SIZE, 1);
+    }
+
+    /* Initialize heap pointer */
+    uint32_t heap_end = elf.rw_vaddr+elf.rw_size;
+    process_table[pid].heap_end = heap_end;
+    if (heap_end % PAGE_SIZE == 0) {
+        /* In the unlikely event that the heap should start on the 
+           first address of a page we must allocate that page. */
+        uint32_t phys_page = pagepool_get_phys_page();
+        KERNEL_ASSERT(phys_page != 0);
+        vm_map(pagetable, phys_page, heap_end, 1);
+    }
 
     /* Zero the pages. */
     memoryset((void *)elf.ro_vaddr, 0, elf.ro_pages*PAGE_SIZE);
     memoryset((void *)elf.rw_vaddr, 0, elf.rw_pages*PAGE_SIZE);
 
-    stack_bottom = (USERLAND_STACK_TOP & PAGE_SIZE_MASK) - 
+    stack_bottom = (USERLAND_STACK_TOP & PAGE_SIZE_MASK) -
         (CONFIG_USERLAND_STACK_SIZE-1)*PAGE_SIZE;
     memoryset((void *)stack_bottom, 0, CONFIG_USERLAND_STACK_SIZE*PAGE_SIZE);
 
     /* Copy segments */
 
     if (elf.ro_size > 0) {
-	/* Make sure that the segment is in proper place. */
+        /* Make sure that the segment is in proper place. */
         KERNEL_ASSERT(elf.ro_vaddr >= PAGE_SIZE);
         KERNEL_ASSERT(vfs_seek(file, elf.ro_location) == VFS_OK);
         KERNEL_ASSERT(vfs_read(file, (void *)elf.ro_vaddr, elf.ro_size)
-		      == (int)elf.ro_size);
+                == (int)elf.ro_size);
     }
 
     if (elf.rw_size > 0) {
-	/* Make sure that the segment is in proper place. */
+        /* Make sure that the segment is in proper place. */
         KERNEL_ASSERT(elf.rw_vaddr >= PAGE_SIZE);
         KERNEL_ASSERT(vfs_seek(file, elf.rw_location) == VFS_OK);
         KERNEL_ASSERT(vfs_read(file, (void *)elf.rw_vaddr, elf.rw_size)
-		      == (int)elf.rw_size);
+                == (int)elf.rw_size);
     }
 
 
@@ -185,201 +240,117 @@ void process_start(const process_id_t pid) {
     tlb_fill(my_entry->pagetable);
     _interrupt_set_state(intr_status);
 
+
     /* Initialize the user context. (Status register is handled by
        thread_goto_userland) */
     memoryset(&user_context, 0, sizeof(user_context));
     user_context.cpu_regs[MIPS_REGISTER_SP] = USERLAND_STACK_TOP;
     user_context.pc = elf.entry_point;
 
-    intr_status = _interrupt_disable();
     thread_goto_userland(&user_context);
-    _interrupt_set_state(intr_status);
 
     KERNEL_PANIC("thread_goto_userland failed.");
 }
 
-void process_init() {
-  process_id_t i;
-  interrupt_status_t intr_status = _interrupt_disable();
-  spinlock_reset(&process_table_slock);
-  spinlock_acquire(&process_table_slock);
-  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
-    // Testing.
-    kprintf("Initializing process table slot %d\n", (int) i);
-    process_table[i].state = PROCESS_FREE;
-  }
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
+process_id_t process_spawn(const char *executable)
+{
+    TID_t thread;
+    process_id_t pid = alloc_process_id();
 
+    if (pid == PROCESS_MAX_PROCESSES)
+        return PROCESS_PTABLE_FULL;
+
+    /* Remember to copy the executable name for use in process_start */
+    stringcopy(process_table[pid].executable, executable, PROCESS_MAX_FILELENGTH);
+    process_table[pid].parent = process_get_current_process();
+
+    thread = thread_create((void (*)(uint32_t))(&process_start), pid);
+    thread_run(thread);
+    return pid;
 }
 
-process_id_t process_spawn(const char *executable) {
-  // Testing.
-  kprintf("Spawning process %s\n", executable);
-  interrupt_status_t intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  process_id_t pid = process_get_free();
-  // Testing.
-  kprintf("Found free process spot %d.\n", (int) pid);
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
-  if (pid == PROCESS_PTABLE_FULL) {
-    KERNEL_PANIC("process_table is full.");
-  }
-  
-  intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  process_control_block_t *myentry = &process_table[pid];
-  process_id_t par = process_get_current_process();
-  stringcopy(myentry->name, executable, PROCESS_MAX_NAMESIZE);
-  myentry->pid = pid;
-  myentry->parent = par;
-  // Testing
-  kprintf("Process has parent: %d\n", myentry->parent);
-  kprintf("Process 10 has parent: %d\n", process_table[10].parent);
-  myentry->state = PROCESS_RUNNING;
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
-
-  // Testing
-  kprintf("Starting thread with process %d\n", pid);
-  intr_status = _interrupt_disable();
-  thread_run(thread_create( (void (*) (uint32_t)) & process_start, pid));
-  _interrupt_set_state(intr_status);
-  kprintf("process_spawn returns pid: %d\n", pid);
-  return pid;
-}
-
-/* Stop the process and the thread it runs in. Sets the return value as well */
-void process_finish(int retval) {
-  // Testing.
-  kprintf("Finishing current process.\n");
-  if (retval < 0) {
-    KERNEL_PANIC("error: process_finish received negative arg");
-  }
-  interrupt_status_t intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  process_control_block_t *my_entry = process_get_current_process_entry();
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
-
-  // Testing
-  kprintf("Current process: %d\n", my_entry->pid);
-  kprintf("Calling process_join_children\n");
-  process_join_children(my_entry->pid);
-  kprintf("Called process_join_children\n");
-  intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  // Testing
-  kprintf("Check: %d == -1\n", my_entry->parent);
-  if (my_entry->parent != -1) {
-    // Testing
-    kprintf("Does have parent. \n");
-    my_entry->state = PROCESS_ZOMBIE;
-    sleepq_wake(&(process_table[my_entry->parent]));
-  }
-  else {
-    // Testing
-    kprintf("Process does not have parent. \n");
-    my_entry->state = PROCESS_FREE;
-  }
-  spinlock_release(&process_table_slock);
-
-  thread_table_t *thr = thread_get_current_thread_entry();
-  vm_destroy_pagetable(thr->pagetable);
-  thr->pagetable = NULL;
-  thread_finish();
-  // Testing
-  thread_switch();
-  _interrupt_set_state(intr_status);
-  kprintf("process_finish completed\n");
-}
-
-int process_join(process_id_t pid) {
-  // Ensure that pid is a child of the current process.
-  interrupt_status_t intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  if (process_table[pid].parent != process_get_current_process()) {
-    spinlock_release(&process_table_slock);
-    _interrupt_set_state(intr_status);
-    return PROCESS_ILLEGAL_JOIN;
-  }
-  int *parent_id = (int *) process_get_current_process_entry();
-  spinlock_acquire(parent_id);
-  process_get_current_process_entry()->state = PROCESS_JOINING;
-  while (process_table[pid].state != PROCESS_ZOMBIE) {
-    sleepq_add(process_get_current_process_entry());
-    spinlock_release(&process_table_slock);
-    spinlock_release(parent_id);
-    thread_switch();
-    spinlock_acquire(&process_table_slock);
-    spinlock_acquire(parent_id);
-  }
-  spinlock_release(&process_table_slock);
-
-  // Work with resource.
-
-  spinlock_release(parent_id);
-  process_table[pid].state = PROCESS_FREE;
-  process_table[pid].parent = -1;
-  process_get_current_process_entry()->state = PROCESS_RUNNING;
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
-
-  return PROCESS_LEGAL_JOIN;
-}
-
-
-process_id_t process_get_current_process(void) {
+process_id_t process_get_current_process(void)
+{
     return thread_get_current_thread_entry()->process_id;
 }
 
-process_control_block_t *process_get_current_process_entry(void) {
+process_table_t *process_get_current_process_entry(void)
+{
     return &process_table[process_get_current_process()];
 }
 
-process_control_block_t *process_get_process_entry(process_id_t pid) {
-    return &process_table[pid];
-}
+int process_join(process_id_t pid)
+{
+    int retval;
+    interrupt_status_t intr_status;
 
-/* Finds free position in process table.
- *
- * return
- *
- */
-process_id_t process_get_free() {
-  process_id_t i;
+    /* Only join with legal pids */
+    if (pid < 0 || pid >= PROCESS_MAX_PROCESSES ||
+            process_table[pid].parent != process_get_current_process())
+        return PROCESS_ILLEGAL_JOIN;
 
-  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
-    if (process_table[i].state == PROCESS_FREE) {
-      return i;
+    intr_status = _interrupt_disable();
+    spinlock_acquire(&process_table_slock);
+
+    /* The thread could be zombie even though it wakes us (maybe). */
+    while (process_table[pid].state != PROCESS_ZOMBIE)
+    {
+        sleepq_add(&process_table[pid]);
+        spinlock_release(&process_table_slock);
+        thread_switch();
+        spinlock_acquire(&process_table_slock);
     }
-  }
-  return PROCESS_PTABLE_FULL;
+
+    retval = process_table[pid].retval;
+    process_reset(pid);
+
+    spinlock_release(&process_table_slock);
+    _interrupt_set_state(intr_status);
+    return retval;
 }
 
-/* Calls process_join on all process with specified parent.
- *
- * @param pid
- * process_id of parent
- */
-void process_join_children(process_id_t pid) {
-  process_id_t i;
-  interrupt_status_t intr_status = _interrupt_disable();
-  spinlock_acquire(&process_table_slock);
-  for (i = 0; i < PROCESS_MAX_PROCESSES; i++) {
-    if (process_table[i].parent == pid) {
-      spinlock_release(&process_table_slock);
-      _interrupt_set_state(intr_status);
-      process_join(i);
-      intr_status = _interrupt_disable();
-      spinlock_acquire(&process_table_slock);
-    }
-  }
-  spinlock_release(&process_table_slock);
-  _interrupt_set_state(intr_status);
+void process_finish(int retval)
+{
+    interrupt_status_t intr_status;
+    process_id_t cur = process_get_current_process();
+    thread_table_t *thread = thread_get_current_thread_entry();
+
+    intr_status = _interrupt_disable();
+    spinlock_acquire(&process_table_slock);
+
+    process_table[cur].state  = PROCESS_ZOMBIE;
+    process_table[cur].retval = retval;
+
+    /* Remember to destroy the pagetable! */
+    vm_destroy_pagetable(thread->pagetable);
+    thread->pagetable = NULL;
+
+    sleepq_wake_all(&process_table[cur]);
+
+    spinlock_release(&process_table_slock);
+    _interrupt_set_state(intr_status);
+    thread_finish();
 }
 
+int process_add_file(openfile_t fd)
+{
+  fd = fd;
+  KERNEL_PANIC("Not implemented.");
+  return 0; /* Dummy */
+}
 
+int process_rem_file(openfile_t fd)
+{
+  fd = fd;
+  KERNEL_PANIC("Not implemented.");
+  return 0; /* Dummy */
+}
+
+int process_check_file(openfile_t fd)
+{
+  fd = fd;
+  KERNEL_PANIC("Not implemented.");
+  return 0; /* Dummy */
+}
 
 /** @} */

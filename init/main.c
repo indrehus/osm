@@ -118,6 +118,7 @@ void init_startup_thread(uint32_t arg)
     /* Threads have arguments for functions they run, we don't
        need any. Silence the compiler warning by using the argument. */
     arg = arg;
+    process_id_t pid;
 
     kprintf("Mounting filesystems\n");
     vfs_mount_all();
@@ -131,12 +132,13 @@ void init_startup_thread(uint32_t arg)
     }
 
     kprintf("Starting initial program '%s'\n", bootargs_get("initprog"));
-    // Added by us.
-    process_init();
-    process_join(process_spawn(bootargs_get("initprog")));
 
-    /* The current process_start() should never return. */
-    KERNEL_PANIC("Run out of initprog.\n");
+    pid = process_spawn(bootargs_get("initprog"));
+    if (pid < 0)
+        KERNEL_PANIC("Couldn't fit initial program in process table.\n");
+
+    process_join(pid);
+    halt_kernel();
 }
 
 /* Whether other processors than 0 may continue in SMP mode.
@@ -196,6 +198,9 @@ void init(void)
 
     kwrite("Initializing threading system\n");
     thread_table_init();
+
+    kwrite("Initializing user process system\n");
+    process_init();
 
     kwrite("Initializing sleep queue\n");
     sleepq_init();
