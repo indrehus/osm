@@ -39,6 +39,7 @@
 #include "lib/libc.h"
 #include "kernel/thread.h"
 #include "kernel/exception.h"
+#include "vm/tlb.h"
 
 void syscall_handle(context_t *user_context);
 
@@ -70,12 +71,15 @@ void user_exception_handle(int exception)
 
     switch(exception) {
     case EXCEPTION_TLBM:
+      tlb_modified_exception();
 	KERNEL_PANIC("TLB Modification: not handled yet");
 	break;
     case EXCEPTION_TLBL:
+      tlb_load_exception();
 	KERNEL_PANIC("TLB Load: not handled yet");
 	break;
     case EXCEPTION_TLBS:
+      tlb_store_exception();
 	KERNEL_PANIC("TLB Store: not handled yet");
 	break;
     case EXCEPTION_ADDRL:

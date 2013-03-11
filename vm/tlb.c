@@ -38,20 +38,35 @@
 #include "kernel/assert.h"
 #include "vm/tlb.h"
 #include "vm/pagetable.h"
+#include "kernel/thread.h"
 
 void tlb_modified_exception(void)
-{
-    KERNEL_PANIC("Unhandled TLB modified exception");
+{  
+    KERNEL_PANIC("Access violation");
 }
 
 void tlb_load_exception(void)
 {
-    KERNEL_PANIC("Unhandled TLB load exception");
+  tlb_seek_insert();
 }
 
 void tlb_store_exception(void)
 {
-    KERNEL_PANIC("Unhandled TLB store exception");
+  tlb_seek_insert();
+}
+
+void tlb_seek_insert(void)
+{
+  tlb_exception_state_t state;
+  _tlb_get_exception_state(&state);
+  pagetable_t *table = thread_get_current_thread_entry()->pagetable;
+  for (int i = 0; i < (int)table->valid_count; i++) {
+    if (table->entries[i].VPN2 == state.badvpn2) {
+      _tlb_write_random(&table->entries[i]);
+      return;
+    }
+  }
+  KERNEL_PANIC("Access violation");
 }
 
 /**

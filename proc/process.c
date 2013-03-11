@@ -170,7 +170,7 @@ void process_start(process_id_t pid)
        pages fit into the TLB. After writing proper TLB exception
        handling this call should be skipped. */
     intr_status = _interrupt_disable();
-    tlb_fill(my_entry->pagetable);
+    // tlb_fill(thread_get_current_thread_entry()->pagetable);
     _interrupt_set_state(intr_status);
 
     /* Now we may use the virtual addresses of the segments. */
@@ -237,7 +237,7 @@ void process_start(process_id_t pid)
 
     /* Insert page mappings again to TLB to take read-only bits into use */
     intr_status = _interrupt_disable();
-    tlb_fill(my_entry->pagetable);
+    // tlb_fill(my_entry->pagetable);
     _interrupt_set_state(intr_status);
 
 
