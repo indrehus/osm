@@ -743,7 +743,7 @@ void *malloc(size_t size) {
 /* Return the block pointed to by ptr to the free pool. */
 void free(void *ptr)
 {
-  if (free != NULL) { /* Freeing NULL is a no-op */
+  if (ptr != NULL) { /* Freeing NULL is a no-op */
     free_block_t *block = (free_block_t*)((byte*)ptr-sizeof(size_t));
     free_block_t *cur_block;
     free_block_t *prev_block;

@@ -90,6 +90,21 @@ process_id_t syscall_exec(const char *filename)
     return process_spawn(filename);
 }
 
+void * syscall_memlimit(void *heap_end)
+{
+  if (heap_end == NULL) {
+    return &process_get_current_process_entry()->heap_end;
+  }
+  /*
+  if (process_get_current_process_entry()->heap_end > *heap_end) {
+    KERNEL_PANIC("Error");
+  }
+  */
+  
+  // TODO
+
+}
+
 /**
  * Handle system calls. Interrupts are enabled when this function is
  * called.
