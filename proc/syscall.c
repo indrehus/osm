@@ -43,6 +43,8 @@
 #include "drivers/device.h"
 #include "drivers/gcd.h"
 #include "fs/vfs.h"
+#include "vm/pagetable.h"
+#include "kernel/thread.h"
 
 void syscall_exit(int retval)
 {
@@ -90,19 +92,36 @@ process_id_t syscall_exec(const char *filename)
     return process_spawn(filename);
 }
 
-void * syscall_memlimit(void *heap_end)
-{
+void *syscall_memlimit(void *heap_end)
+{  
+  process_table_t *process;
+  process = process_get_current_process_entry();
+  thread_table_t *thread;
+  thread = thread_get_current_thread_entry();
+
   if (heap_end == NULL) {
-    return &process_get_current_process_entry()->heap_end;
+    return &process->heap_end;
   }
+
+  uint32_t new_heap_end = (uint32_t) heap_end;
+  uint32_t need = (new_heap_end - process->heap_end) / 4;
+  uint32_t free = PAGETABLE_ENTRIES - thread->pagetable->valid_count;
+
+  if (need <= free) {
+    thread->pagetable->valid_count += need;
+    process->heap_end = new_heap_end;
+
+    return (void *) new_heap_end;
+  }
+  else {
+    return (void *) process->heap_end;
+  }
+
   /*
   if (process_get_current_process_entry()->heap_end > *heap_end) {
     KERNEL_PANIC("Error");
   }
   */
-  
-  // TODO
-
 }
 
 /**
