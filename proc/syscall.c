@@ -100,7 +100,7 @@ void *syscall_memlimit(void *heap_end)
   thread = thread_get_current_thread_entry();
 
   if (heap_end == NULL) {
-    return &process->heap_end;
+    return process->heap_end;
   }
 
   uint32_t new_heap_end = (uint32_t) heap_end;
