@@ -45,6 +45,8 @@
 #include "fs/vfs.h"
 #include "vm/pagetable.h"
 #include "kernel/thread.h"
+#include "vm/pagepool.h"
+#include "vm/vm.h"
 
 void syscall_exit(int retval)
 {
@@ -98,30 +100,27 @@ void *syscall_memlimit(void *heap_end)
   process = process_get_current_process_entry();
   thread_table_t *thread;
   thread = thread_get_current_thread_entry();
-
-  if (heap_end == NULL) {
-    return process->heap_end;
-  }
-
   uint32_t new_heap_end = (uint32_t) heap_end;
-  uint32_t need = (new_heap_end - process->heap_end) / 4;
-  uint32_t free = PAGETABLE_ENTRIES - thread->pagetable->valid_count;
 
-  if (need <= free) {
-    thread->pagetable->valid_count += need;
-    process->heap_end = new_heap_end;
+  if (process->heap_end > new_heap_end) return NULL;
+  if (heap_end == NULL) return (void *)process->heap_end;
 
-    return (void *) new_heap_end;
-  }
-  else {
-    return (void *) process->heap_end;
-  }
+  uint32_t need = new_heap_end - process->heap_end;
 
-  /*
-  if (process_get_current_process_entry()->heap_end > *heap_end) {
-    KERNEL_PANIC("Error");
+  if (need > PAGE_SIZE) KERNEL_PANIC("Too large allocation");
+
+  //uint32_t free = PAGETABLE_ENTRIES - thread->pagetable->valid_count;
+  uint32_t free = PAGE_SIZE - process->heap_end % PAGE_SIZE;
+  uint32_t diff = free - need;
+
+  if (diff <= 0) {
+    if (thread->pagetable->valid_count >= PAGETABLE_ENTRIES) return NULL;
+    uint32_t phys_page = pagepool_get_phys_page();
+    KERNEL_ASSERT(phys_page != 0);
+    vm_map(thread->pagetable, phys_page, new_heap_end, 1);    
   }
-  */
+  process->heap_end = new_heap_end;
+  return (void *) new_heap_end;
 }
 
 /**

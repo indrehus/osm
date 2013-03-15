@@ -691,8 +691,8 @@ byte heap[HEAP_SIZE];
    first. */
 void heap_init()
 {
-  free_list = (free_block_t*) heap;
-  free_list->size = HEAP_SIZE;
+  free_list = (free_block_t *) syscall_memlimit(NULL);
+  free_list->size = 0;
   free_list->next = NULL;
 }
 
@@ -737,7 +737,12 @@ void *malloc(size_t size) {
   }
 
   /* No heap space left. */
-  return NULL;
+  uint32_t heap_end = * (uint32_t *) syscall_memlimit(NULL);
+  uint32_t new_heap_end = heap_end + size;
+  if (syscall_memlimit((void *) new_heap_end) == NULL) return NULL;
+  block->size = size;
+  block->next = NULL;
+  return malloc(size);
 }
 
 /* Return the block pointed to by ptr to the free pool. */

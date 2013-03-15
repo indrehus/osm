@@ -49,7 +49,7 @@ SYSLIBS := crt.o _syscall.o lib.o
 CC      := mips-elf-gcc
 AS      := mips-elf-as
 LD      := mips-elf-ld
-CFLAGS  += -G0 -I.. -Wall -W -Werror
+CFLAGS  += -G0 -I.. -Wall -W -Werror -fno-builtin-putc
 LDFLAGS := --script=ld.userland.script --cref -s -G0
 ASFLAGS := -I.. -Wa,-mips32
 
