@@ -737,7 +737,7 @@ void *malloc(size_t size) {
   }
 
   /* No heap space left. */
-  uint32_t heap_end = * (uint32_t *) syscall_memlimit(NULL);
+  uint32_t heap_end = (uint32_t) syscall_memlimit(NULL);
   uint32_t new_heap_end = heap_end + size;
   if (syscall_memlimit((void *) new_heap_end) == NULL) return NULL;
   block->size = size;

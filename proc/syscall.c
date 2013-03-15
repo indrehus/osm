@@ -95,26 +95,34 @@ process_id_t syscall_exec(const char *filename)
 }
 
 void *syscall_memlimit(void *heap_end)
-{  
+{
   process_table_t *process;
   process = process_get_current_process_entry();
   thread_table_t *thread;
   thread = thread_get_current_thread_entry();
   uint32_t new_heap_end = (uint32_t) heap_end;
 
-  if (process->heap_end > new_heap_end) return NULL;
+  /* If the new heap end is NULL, returns current heap end. */
   if (heap_end == NULL) return (void *)process->heap_end;
+
+  /* Check if new heap_end is lower than the current. */
+  if (process->heap_end > new_heap_end) return NULL;
 
   uint32_t need = new_heap_end - process->heap_end;
 
-  if (need > PAGE_SIZE) KERNEL_PANIC("Too large allocation");
+  /* Ensure that maximum one new page is needed. */
+  if (need > PAGE_SIZE) return NULL;
 
-  //uint32_t free = PAGETABLE_ENTRIES - thread->pagetable->valid_count;
-  uint32_t free = PAGE_SIZE - process->heap_end % PAGE_SIZE;
+  /* Calculate free space on current page. */
+  uint32_t free = PAGE_SIZE - (process->heap_end % PAGE_SIZE);
   uint32_t diff = free - need;
 
+  /* Check if there is enough space on current page. */
   if (diff <= 0) {
+    /* Check if the thread is allowed to allocate a new page. */
     if (thread->pagetable->valid_count >= PAGETABLE_ENTRIES) return NULL;
+    
+    /* Retrieve the address of a free physical page and map it to the new page. */
     uint32_t phys_page = pagepool_get_phys_page();
     KERNEL_ASSERT(phys_page != 0);
     vm_map(thread->pagetable, phys_page, new_heap_end, 1);    
